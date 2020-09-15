@@ -11,62 +11,81 @@ from adafruit_display_text import label
 from adafruit_display_shapes.rect import Rect
 from gamepadshift import GamePadShift
 
+
+# User config for convenience
+AlarmSample = "Alarm2.wav"
+DisplayRotation = 270
+TriggerDistance = 182.88 # Use centimeters
+LabelFont = "/Helvetica-Bold-16.bdf"
+DistanceFont = "/Dustfine-65.bdf"
+CycleDelay = .1
+BGSafe = 0x00FF00
+BGUnsafe = 0xFF0000
+TxtSafe = "Safe"
+TxtUnsafe = "TOO CLOSE!"
+DistanceTextColor = 0xFFFFFF
+LabelTextColor = 0xFFFFFF
+
+
+# Connect to the range finder
 uart = busio.UART(board.TX, board.RX, baudrate=9600)
-# Create a US-100 module instance.
 us100 = adafruit_us100.US100(uart)
 
+# Prep the speaker
 speakerEnable = digitalio.DigitalInOut(board.SPEAKER_ENABLE)
 speakerEnable.switch_to_output(value=True)
 dac = audioio.AudioOut(board.SPEAKER)
-alert = audioio.WaveFile(open("Alarm2.wav", "rb"))
 sound_on = False
 
-BUTTON_LEFT = const(128)
-BUTTON_UP = const(64)
-BUTTON_DOWN = const(32)
-BUTTON_RIGHT = const(16)
+# Load the audio file
+alert = audioio.WaveFile(open(AlarmSample, "rb"))
+
+# Button Prep
 BUTTON_SEL = const(8)
 BUTTON_START = const(4)
-BUTTON_A = const(2)
-BUTTON_B = const(1)
-pad = GamePadShift(digitalio.DigitalInOut(board.BUTTON_CLOCK),
-                   digitalio.DigitalInOut(board.BUTTON_OUT),
-                   digitalio.DigitalInOut(board.BUTTON_LATCH))
+pad = GamePadShift(
+    digitalio.DigitalInOut(board.BUTTON_CLOCK),
+    digitalio.DigitalInOut(board.BUTTON_OUT),
+    digitalio.DigitalInOut(board.BUTTON_LATCH)
+)
 
+# Prep the neopixel
 pixel = neopixel.NeoPixel(
     board.NEOPIXEL, 1, brightness=0.2, auto_write=True, pixel_order=neopixel.GRB
 )
 
-trigger_distance = 182.88
-
+# Prep the Display
 display = board.DISPLAY
-display.rotation=270
+display.rotation=DisplayRotation
 
-# Set text, font, and color
-text = "HELLO WORLD"
-font = bitmap_font.load_font("/Helvetica-Bold-16.bdf")
-font2 = bitmap_font.load_font("/Dustfine-65.bdf")
-color = 0xFFFFFF
+# Prep Text Elements
+font = bitmap_font.load_font(LabelFont)
+font2 = bitmap_font.load_font(DistanceFont)
 
-top_text_area = label.Label(font, text=text, color=color)
+top_text_area = label.Label(font, text="Loading...", color=LabelTextColor)
 top_text_area.x = 10
 top_text_area.y = 20
 
-dist_text_area = label.Label(font2, text="0.00'", color=color)
+dist_text_area = label.Label(font2, text="0.00'", color=DistanceTextColor)
 dist_text_area.x = 10
 dist_text_area.y = 80
 
+# Prep the background fill
 rect = Rect(0, 0, 140, 160, fill=0x000000)
 
+# Display groups for organization
 display_group = displayio.Group(max_size=25)
 display_group.append(rect)
 display_group.append(top_text_area)
 display_group.append(dist_text_area)
 
+# Loop prep
 current_buttons = pad.get_pressed()
 last_read = 0
 
+# Main loop
 while True:
+    # PyBadges don't like having their input read too fast
     if (last_read + 0.1) < time.monotonic():
         buttons = pad.get_pressed()
         last_read = time.monotonic()
@@ -78,22 +97,30 @@ while True:
             sound_on = False
             if dac.playing:
                 dac.stop()
+
+    # Pull in the latest data
     temperature = us100.temperature
     distance = us100.distance
     dist_text_area.text = str(round(distance/30.48, 2)) + "'"
-    if distance < trigger_distance:
-        print("TOO CLOSE!", distance)
-        top_text_area.text = "TOO CLOSE!"
-        rect.fill = 0xFF0000
+
+    # Update display elements
+    if distance < TriggerDistance:
+        print(TxtUnsafe, distance)
+        top_text_area.text = TxtUnsafe
+        rect.fill = BGUnsafe
         pixel.fill((255, 0, 0))
         if not dac.playing and sound_on:
             dac.play(alert)
     else:
-        print("Safe")
-        top_text_area.text = "Safe"
-        rect.fill = 0x00FF00
+        print(TxtSafe)
+        top_text_area.text = TxtSafe
+        rect.fill = BGSafe
         pixel.fill((0, 255, 0))
         if dac.playing:
             dac.stop()
+
+    # Flip the display
     display.show(display_group)
-    time.sleep(.1)
+
+    # Sleep until next cycle
+    time.sleep(CycleDelay)
